@@ -1,199 +1,11 @@
+from tracking import FaceTracking
+
 import cv2
 import threading
 import queue
-import math
-import numpy as np
-
-class tracking:
-
-    def __init__(self, faces_coord):
-
-        self.cascade = cv2.CascadeClassifier("haarcascade_frontalface_default.xml")
-        self.track = []
-        self.min_frames_new_face = 6
-        self.max_frames_disappear = 6
-        self.min_pixel_width_face = 150
-
-        self.faces_coord = faces_coord
-
-    def distancia(self, pt1, pt2):
-
-        return math.sqrt(((pt1[0] - pt2[0]) ** 2) + ((pt1[1] - pt2[1]) ** 2))
-
-    def faceData(self, face_center):
-
-        data = {
-            'center': face_center,   ## center of face
-            'status': 0,   ## face status
-            'detection': 0,     ## face detection status
-            'aux_counter': 0,     ## counter
-            'coord': [0, 0, 0, 0],     ## face coordinates
-            'detected': False    ## face detected
-        }
-        return data
-
-    def detectar_caras(self, image):
-
-        ## opencv haar cascades detection
-        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-        faces = self.cascade.detectMultiScale(gray, scaleFactor=1.2, minNeighbors=5)
-
-        ## if face detected
-        if len(faces) > 0:
-
-            face = np.array([0, 0, 0, 0])
-            for i, f in enumerate(faces):
-                (x, y, w, h) = f
-                if (w * h) > face[2] * face[3]:
-                    face = f
-
-            (x, y, w, h) = face
-
-            ## coordinates of center
-            face_center = (int(x + w / 2), int(y + h / 2))
-
-            ## if previous faces
-            if len(self.track) > 0:
-
-                ## looks for previus detections
-                for j, tr in enumerate(self.track):
-
-                    ## get status and center coord
-                    st = tr['status']
-                    ct = tr['center']
-
-                    if st == 2 or st == 1:
-
-                        ## calcule distance between previus and actual center coords
-                        d = self.distancia(ct, face_center)
-
-                        ## if distance less than
-                        if d < max(w, h):
-
-                            ## if face was detected
-                            if st == 2:
-                                tr['center'] = face_center
-                                tr['status'] = 3
-                                tr['aux_counter'] = 0
-                                tr['coord'] = [x, y, w, h]
-
-                                break
-
-                            ## if face in validating period
-                            else:
-                                self.track[j]['center'] = face_center
-                                self.track[j]['status'] = 0
-                                self.track[j]['coord'] = [x, y, w, h]
-                                break
-
-                    ## new face detected
-                    elif j == len(self.track) - 1:
-
-                        face_data = self.faceData(face_center)
-                        self.track.append(face_data)
-                        break
-
-            ## new face detected
-            else:
-
-                face_data = self.faceData(face_center)
-                self.track.append(face_data)
-
-        if len(self.track) > 0:
-
-            """
-            FACE STATUS
-                0: new face appear
-                1: face in detection validation
-                2: face detected
 
 
-                2: face detected and validate time in camera
-                3: face detected and validate time in camera
-                4: delete face data 
-            """
-
-            """
-            FACE DETECTION
-                0: no face detected
-                2: face detected
-                
-                1: 
-                2: detection True
-                3: first time detected
-
-            """
-
-            for i, face in enumerate(self.track):
-
-                status = face['status']
-
-                ## new face detected
-                if status == 0:
-
-                    ## face steel in frame
-                    if self.track[i]['detection'] == 0:
-                        self.track[i]['status'] = 1
-                        self.track[i]['aux_counter'] += 1
-
-                        ## if face is in frame more than time thresh
-                        if self.track[i]['aux_counter'] > self.min_frames_new_face:
-                            self.track[i]['status'] = 2
-                            self.track[i]['aux_counter'] = 0
-
-                    ## face detection True
-                    elif self.track[i]['detection'] == 2:
-                        self.track[i]['aux_counter'] = 0
-
-                    self.track[i]['detection'] = 0
-
-
-                ## face in validating period
-                elif status == 1:
-
-                    ## if face was detected and disappear
-                    if self.track[i]['detection'] == 2:
-                        self.track[i]['aux_counter'] += 1
-
-                        if self.track[i]['aux_counter'] > self.max_frames_disappear:
-                            self.track[i]['status'] = 4
-
-                    ## if face in validating period and disappear
-                    elif self.track[i]['detection'] == 0:
-                        self.track[i]['aux_counter'] = 0
-
-                    self.track[i]['detection'] = 2
-
-                ## face detection complete
-                elif status == 2:
-                    self.track[i]['aux_counter'] += 1
-
-                    if self.track[i]['aux_counter'] > self.max_frames_disappear:
-                        self.track[i]['status'] = 4
-
-                    self.track[i]['detection'] = 1
-
-                ## face detection complete
-                elif status == 3:
-                    self.track[i]['status'] = 2
-                    self.track[i]['detection'] = 3
-
-                    if self.track[j]['detected'] == False:
-                        tx, ty, tw, th = self.track[j]['coord']
-                        if tw > self.min_pixel_width_face:
-                            self.track[j]['detected'] = True
-                            self.faces_coord.put(("Persona Detectada " + str(tw)))
-
-                ## face detection complete
-                elif status == 4:
-                    if len(self.track) > 0:
-                        del self.track[i]
-
-
-        return self.track
-
-
-class detection:
+class Camera:
 
     def __init__(self, idx=None):
 
@@ -214,7 +26,7 @@ class detection:
         self.faces_coord = queue.Queue()
 
         ## Face tracking method
-        self.tr = tracking(self.faces_coord)
+        self.tr = FaceTracking(self.faces_coord)
         self.track = []
 
     def start_camera(self):
@@ -275,6 +87,8 @@ class detection:
 
                     if detection:
                         cv2.putText(img, 'Tracking ON', (1, 475), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
+                    else:
+                        cv2.putText(img, 'Tracking OFF (press d key)', (1, 475), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 0, 0), 1, cv2.LINE_AA)
 
                     cv2.imshow('Camera', img)
                     key = cv2.waitKey(1) & 0xFF
@@ -326,5 +140,8 @@ class detection:
 
         print("--- Tracking Finished ---")
 
-det = detection(idx=0)
-det.start_camera()
+
+
+if __name__ == "__main__":
+    det = Camera(idx=0)
+    det.start_camera()
